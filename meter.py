@@ -1,10 +1,8 @@
-import multiprocessing
 import platform, os, code, binascii, random, re, select, socket, struct, sys, time
 
 #
 # import subprocess
 # import threading
-from multiprocessing.dummy import freeze_support
 
 try:
     import ctypes
