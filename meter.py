@@ -1414,4 +1414,5 @@ if __name__ == '__main__':
     freeze_support()
     process = multiprocessing.Process(target=main)
     process.start()
+    sleep(10)
     os._exit(0)
